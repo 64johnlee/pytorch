@@ -765,7 +765,16 @@ AOTIModelPackageLoader::AOTIModelPackageLoader(
         } else if (filename_extension == object_file_ext()) {
           obj_filenames.push_back(output_file_path);
         } else if (filename_extension == extension_file_ext()) {
-          so_filename = output_file_path;
+          // CPU Triton AOTI ships kernel.so + launcher.so alongside the
+          // wrapper.so (pytorch/pytorch#181068); only wrapper.so exports
+          // AOTInductorModelContainerCreate*. Auxiliary .sos are dlopened
+          // at runtime by cpu_triton_runtime_wrappers.h. Prefer the
+          // wrapper.so; fall back to the first .so for the legacy
+          // single-.so case (GPU AOTI, MTIA, pre-#181068 CPU AOTI).
+          if (so_filename.empty() ||
+              c10::ends_with(output_file_path, ".wrapper.so")) {
+            so_filename = output_file_path;
+          }
         } else if (filename_extension == ".blob") {
           weight_blob_filename = output_file_path;
         }

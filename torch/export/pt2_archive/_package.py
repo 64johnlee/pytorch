@@ -270,7 +270,6 @@ def _package_aoti_files(
     ] = {}  # model_name -> (weight_name -> (filename, shape, stride, offset))
 
     for model_name, files in aoti_files.items():
-        num_so_files = 0
         weights_configs[model_name] = {}
 
         for file in files:
@@ -281,14 +280,11 @@ def _package_aoti_files(
                 all_weights[model_name] = file
                 continue
 
-            if file.endswith(".so"):
-                num_so_files += 1
-                if num_so_files > 1:
-                    raise RuntimeError(
-                        f"Multiple .so files found in {files}. "
-                        "You might need to clear your cache "
-                        "directory before calling aoti_compile again."
-                    )
+            # CPU Triton AOTI emits per-kernel kernel.so + launcher.so
+            # alongside wrapper.so (pytorch/pytorch#181068). The loader
+            # picks the wrapper.so via cpu_triton_runtime_wrappers.h's
+            # _resolve_cpu_triton_so_path; we just write each file by
+            # its original basename here.
 
             filename = os.path.basename(file)
             if filename.startswith(CUSTOM_OBJ_FILENAME_PREFIX):
