@@ -4184,12 +4184,8 @@ class Scheduler:
         for inp in multi_node.inputs:
             # pyrefly: ignore [missing-attribute]
             inp_name = inp.get_name()
-            # View has its own fixed layout that is not constrained
-            if (
-                not getattr(inp, "layout", None)
-                or inp_name not in constraints
-                or isinstance(inp, ir.ReinterpretView)
-            ):
+
+            if not torch._inductor.select_algorithm.should_use_layout_constraints(inp):
                 continue
 
             layout = inp.layout
@@ -4227,40 +4223,30 @@ class Scheduler:
                 node.node, ir.MultiTemplateBuffer
             ):
                 multi_node = node.node
-                if not config.test_configs.force_extern_kernel_in_multi_template:
+                if (
+                    not config.test_configs.force_extern_kernel_in_multi_template
+                    and not self._has_layout_conflict_for_template(multi_node)
+                ):
                     min_node_unfused, _ = multi_node.get_min_choice()
                 else:
-                    min_node_unfused = next(
-                        (
-                            timing
-                            for timing in multi_node.choice_timings()
-                            if isinstance(
-                                timing,
-                                torch._inductor.select_algorithm.ExternKernelCaller,
-                            )
-                        ),
-                    )
-
-                if isinstance(
-                    min_node_unfused,
-                    torch._inductor.ir.TritonTemplateCallerBase,
-                ):
-                    # Check for layout conflicts before committing to Triton template
-                    if self._has_layout_conflict_for_template(multi_node):
-                        # Fall back to first ExternKernelCaller (ATen)
-                        for choice in multi_node.choice_timings():
-                            if isinstance(
-                                choice,
-                                torch._inductor.select_algorithm.ExternKernelCaller,
-                            ):
-                                min_node_unfused = choice
-                                break
-
-                        assert isinstance(
-                            choice, torch._inductor.select_algorithm.ExternKernelCaller
-                        ), (
-                            "No extern kernel detected to fallback to when layout constraints fail for Triton templates"
+                    extern_choices = [
+                        c
+                        for c in multi_node.choices
+                        if isinstance(
+                            c,
+                            torch._inductor.select_algorithm.ExternKernelCaller,
                         )
+                    ]
+                    assert extern_choices, (
+                        "No extern kernel detected for fallback"
+                    )
+                    if len(extern_choices) > 1:
+                        timings = multi_node.choice_timings()
+                        min_node_unfused = min(
+                            extern_choices, key=lambda c: timings[c]
+                        )
+                    else:
+                        min_node_unfused = extern_choices[0]
 
                 if isinstance(
                     min_node_unfused,
