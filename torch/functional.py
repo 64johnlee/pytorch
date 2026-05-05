@@ -491,6 +491,11 @@ else:
 
 
 def _meshgrid(*tensors, indexing: str | None):
+    if not tensors:
+        raise TypeError(
+            "meshgrid() missing required argument: 'tensors' (at least one tensor is required). "
+            "This behavior is consistent with NumPy and the array-api-standard."
+        )
     if has_torch_function(tensors):
         return handle_torch_function(meshgrid, tensors, *tensors, indexing=indexing)
     if len(tensors) == 1 and isinstance(tensors[0], (list, tuple)):
